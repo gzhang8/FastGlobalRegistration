@@ -11,7 +11,8 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 include_directories(
 	${FastGlobalRegistration_SOURCE_DIR}
 	${FastGlobalRegistration_SOURCE_DIR}/External
-	${FastGlobalRegistration_SOURCE_DIR}/External/Eigen
+        /usr/include/eigen3
+	#${FastGlobalRegistration_SOURCE_DIR}/External/Eigen
 	${FastGlobalRegistration_SOURCE_DIR}/External/flann
 	${FastGlobalRegistration_SOURCE_DIR}/FastGlobalRegistration
 	)
@@ -72,3 +73,5 @@ IF(MATLAB_FOUND)
 ELSE(MATLAB_FOUND)
     message(STATUS "MATLAB not found... MEX interface wont be built.")
 ENDIF(MATLAB_FOUND)
+
+add_subdirectory(apps)
