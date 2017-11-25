@@ -160,8 +160,8 @@ void do_all( int num, bool create_odom)
 			}
 
       CApp app;
-      app.LoadFeature(object_h, object_features);
       app.LoadFeature(scene_h, scene_features);
+      app.LoadFeature(object_h, object_features);
       app.NormalizePoints();
       app.AdvancedMatching();
       app.OptimizePairwise(true, ITERATION_NUMBER);
