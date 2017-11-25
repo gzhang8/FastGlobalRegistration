@@ -26,6 +26,11 @@ typedef pcl::FPFHEstimationOMP<PointNT,PointNT,FeatureT> FeatureEstimationT;
 typedef pcl::PointCloud<FeatureT> FeatureCloudT;
 using namespace std;
 
+void getFitness(PointCloudT::Ptr src_ptr,
+                PointCloudT::Ptr dst_ptr,
+                float corr_dist_threshold_,
+                const Eigen::Matrix4f& T,
+                size_t &inlier_size , float& fitness_score);
 
 std::string dir_name = "";
 
@@ -38,6 +43,7 @@ void do_all( int num, bool create_odom)
 
   std::vector<Points> hdpcds(num);
   std::vector<Feature> fea_pcds(num);
+  std::vector<PointCloudT::Ptr> pcl_pcds(num);
 
   // preload all pcds and 
   for (int i = 0; i < num; i++) {
@@ -118,6 +124,7 @@ void do_all( int num, bool create_odom)
       hdpcds[i].push_back(pts_v);
       fea_pcds[i].push_back(feat_v);
     }
+    pcl_pcds[i] = scene;
   }
 
 
@@ -166,15 +173,28 @@ void do_all( int num, bool create_odom)
       app.AdvancedMatching();
       app.OptimizePairwise(true, ITERATION_NUMBER);
 
-      bool converged = true;
+      Eigen::Matrix4f* transformation_ptr = new Eigen::Matrix4f();
+      *transformation_ptr = app.GetTrans();
+      float fitness_score = 10000000;
+      size_t inlier_size = 0;
+      float inlier_fraction = 0;
+
+      if ( smart_swapped ) {
+        getFitness(pcl_pcds[i], pcl_pcds[j], config.max_correspondence_distance_,
+                   *transformation_ptr, inlier_size, fitness_score);
+        inlier_fraction = static_cast<float>(inlier_size) / static_cast<float>(pcl_pcds[i]->size());
+      } else {
+        getFitness(pcl_pcds[j], pcl_pcds[i], config.max_correspondence_distance_,
+                   *transformation_ptr, inlier_size, fitness_score);
+        inlier_fraction = static_cast<float>(inlier_size) / static_cast<float>(pcl_pcds[j]->size());
+      }
+
+      bool converged = false;
+      if (inlier_fraction >= config.inlier_fraction_|| inlier_size > config.inlier_number_){
+        converged = true;
+      }
+
 			if (converged) {
-
-        Eigen::Matrix4f* transformation_ptr = new Eigen::Matrix4f();
-        Eigen::Matrix< double, 6, 6 > information;
-
-        *transformation_ptr = app.GetTrans();
-
-
 
         if ( smart_swapped ) {
           *transformation_ptr = transformation_ptr->inverse().eval();
@@ -197,15 +217,75 @@ void do_all( int num, bool create_odom)
 
           traj.data_.push_back( FramedTransformation(
                                   i, j, num, (*transformation_ptr).cast< double >() ) );
-          delete transformation_ptr;
         }
 			} else {
 				pcl::console::print_error ("Alignment failed!\n");
 			}
+
+      delete transformation_ptr;
 		}
 	}
 	traj.SaveToFile( "result.txt" );
 }
+
+
+
+void getFitness(PointCloudT::Ptr src_ptr,
+                PointCloudT::Ptr dst_ptr,
+                float corr_dist_threshold_,
+                const Eigen::Matrix4f& T,
+                size_t &inlier_size , float& fitness_score)
+{
+  inlier_size = 0;
+	// Initialize variables
+	//inliers.clear ();
+	//inliers.reserve (input_->size ());
+	//fitness_score = 0.0f;
+
+	//inliers_target.clear();
+	//inliers_target.reserve( target_->size() );
+
+	// Use squared distance for comparison with NN search results
+	const float max_range = corr_dist_threshold_ * corr_dist_threshold_;
+
+	// Transform the input dataset using the final transformation
+	PointCloudT src_transformed;
+	src_transformed.resize (src_ptr->size ());
+	transformPointCloud (*src_ptr, src_transformed, T);
+
+  // set KDTree for NN search
+  pcl::KdTreeFLANN<PointNT>::Ptr pts_tree (new pcl::KdTreeFLANN<PointNT>);
+  PointCloudT::ConstPtr dst_const_ptr(dst_ptr);
+  pts_tree->setInputCloud(dst_const_ptr);
+
+	// For each point in the source dataset
+	for (size_t i = 0; i < src_transformed.points.size (); ++i)
+	{
+		// Find its nearest neighbor in the target
+		std::vector<int> nn_indices (1);
+		std::vector<float> nn_dists (1);
+		pts_tree->nearestKSearch (src_transformed.points[i], 1, nn_indices, nn_dists);
+
+		// Check if point is an inlier
+		if (nn_dists[0] < max_range)
+		{
+			// Update inliers
+			//inliers.push_back (static_cast<int> (i));
+			//inliers_target.push_back( nn_indices[ 0 ] );
+
+			// Update fitness score
+      inlier_size ++;
+			fitness_score += nn_dists[0];
+		}
+	}
+
+	// Calculate MSE
+	if (inlier_size != 0)
+		fitness_score /= static_cast<float> (inlier_size);
+	else
+		fitness_score = std::numeric_limits<float>::max();
+}
+
 
 
 int main(int argc, char * argv[])
